@@ -1,0 +1,73 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit configuration for STAM-gitops
+# ArgoCD source of truth: app-of-apps + per-environment manifests.
+# NOTE: this repo is currently empty (LICENSE only) and has no Dev branch yet.
+# Create Dev before the first Sprint 3 story, or auto_review will only fire on main.
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  poem: false
+  review_status: true
+  collapse_walkthrough: true
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - "Dev"
+      - "main"
+
+  path_filters:
+    - "!**/*.lock"
+
+  path_instructions:
+    - path: "**/*.{yml,yaml}"
+      instructions: >
+        This repository is the deployment source of truth - what is merged
+        here is what ArgoCD applies to a cluster, so a bad merge is a
+        production change, not a proposal. Flag as a must-fix: (1) any
+        plaintext Secret manifest, base64 data block containing a real
+        credential, or kubeconfig - secrets must be SealedSecrets;
+        (2) `image:` referencing `:latest` or a floating tag rather than an
+        immutable digest or SHA tag - STAMPEDE images are published as
+        ghcr.io/stampede-io/<bare-service-name>:<sha> and semver tags;
+        (3) a container without resource requests and limits;
+        (4) securityContext missing runAsNonRoot, or privileged: true;
+        (5) an Application or ApplicationSet with automated sync AND
+        prune/selfHeal enabled pointing at a production environment without
+        that being called out explicitly in the PR description;
+        (6) a manifest that still expects Eureka or Config Server - ADR-0004
+        deletes both, and Kubernetes DNS plus ConfigMaps replace them;
+        (7) service names or DNS that do not match the compose stack's
+        service naming, since drift between the two is silent until runtime.
+        Also flag any environment overlay that diverges from staging in a way
+        the PR does not explain - unexplained prod-only differences are how
+        environments rot apart.
+
+    - path: "**/*.md"
+      instructions: >
+        Flag any documented cluster endpoint, token, or admin password.
+
+  tools:
+    gitleaks:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    checkov:
+      enabled: true
+    semgrep:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
