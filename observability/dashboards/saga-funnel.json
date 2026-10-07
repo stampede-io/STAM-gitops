@@ -1,0 +1,57 @@
+{
+  "title": "Saga Funnel",
+  "uid": "stampede-saga-funnel",
+  "editable": true,
+  "templating": {
+    "list": [
+      {
+        "name": "DS_PROMETHEUS",
+        "type": "datasource",
+        "query": "prometheus"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Holds created / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum(rate(holds_created_total[1m])) * 60", "legendFormat": "holds created" }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Holds expired / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum(rate(holds_expired_total[1m])) * 60", "legendFormat": "holds expired" }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Payments authorized / min",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "sum(rate(payments_authorized_total[1m])) * 60", "legendFormat": "payments authorized" }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Conversion %",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "100 * sum(rate(payments_authorized_total[15m])) / sum(rate(holds_created_total[15m]))", "legendFormat": "conversion %" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent" } }
+    }
+  ]
+}
