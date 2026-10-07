@@ -1,0 +1,25 @@
+# AC4: no syncPolicy.automated block at all — ArgoCD shows OutOfSync the
+# moment this repo's Dev..main (prod's targetRevision) diverges from
+# what's live, and a human has to click Sync in the UI (or `argocd app
+# sync stampede-prod`) to actually apply it. CreateNamespace stays, since
+# that's provisioning, not a config drift concern.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stampede-prod
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stampede-io/STAM-platform.git
+    targetRevision: main
+    path: platform/charts/stampede
+    helm:
+      valueFiles:
+        - values-prod.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: prod
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
