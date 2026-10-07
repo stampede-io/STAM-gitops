@@ -1,0 +1,28 @@
+# AC1 pictures one Application per service (apps/staging/<service>/). What's
+# actually here is one Application for the whole umbrella chart — see this
+# repo's README for why. "automated: prune: true, selfHeal: true" is AC3/AC5:
+# a merge to this repo syncs staging within ArgoCD's default 3-minute poll,
+# and a manual kubectl drift gets reverted automatically.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stampede-staging
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/stampede-io/STAM-platform.git
+    targetRevision: Dev
+    path: platform/charts/stampede
+    helm:
+      valueFiles:
+        - values-staging.yaml
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: staging
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
