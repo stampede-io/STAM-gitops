@@ -26,3 +26,15 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+  # STAM-64 (code review): selfHeal: true would otherwise fight Argo
+  # Rollouts' manual blueGreen promotion on gateway. The Rollout
+  # controller writes spec.paused: true onto the live object while a
+  # preview waits for `kubectl argo rollouts promote` -- a spec field,
+  # not status, which Helm's template never sets (implicit false). Without
+  # this, ArgoCD sees that as drift and selfHeal reverts it, silently
+  # auto-promoting every preview and defeating autoPromotionEnabled: false.
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/paused

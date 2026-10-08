@@ -23,3 +23,12 @@ spec:
   syncPolicy:
     syncOptions:
       - CreateNamespace=true
+  # STAM-64 (code review): even a manual `argocd app sync` reconciles
+  # spec to the chart's desired state, which would un-pause an in-flight
+  # gateway blueGreen promotion the same way selfHeal would in staging
+  # (see that Application's comment) -- same fix needed here.
+  ignoreDifferences:
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/paused
