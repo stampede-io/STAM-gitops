@@ -1,5 +1,46 @@
 # GitOps workflow
 
+## Blue-green on the gateway (STAM-64)
+
+The gateway is the one service validated by hand rather than gated on
+automated analysis (that's booking's and payment's canary Rollouts,
+STAM-63) — it's the front door, and a reviewer wants to hit it directly
+with real traffic before an all-or-nothing cutover, not watch a gradual
+percentage ramp. Its chart (`STAM-gateway/helm/`) uses
+`strategy.blueGreen` with `autoPromotionEnabled: false` instead of canary
+steps: a new version always lands on the `gateway-preview` Service and
+sits there, fully scaled, until a human acts.
+
+```bash
+# after a new image syncs, the Rollout pauses with both versions live
+kubectl port-forward svc/gateway-preview 8080:80   # validate the new one
+kubectl argo rollouts get rollout gateway           # see blue vs preview
+
+kubectl argo rollouts promote gateway                # instant cutover
+# or, if it's wrong:
+kubectl argo rollouts undo gateway                   # instant rollback
+```
+
+Both `promote` and `undo` just repoint the `gateway` Service's selector
+between ReplicaSet hashes — there's no gradual traffic shift to wait out,
+which is the whole point of blue-green over canary here.
+
+### Verified live (kind, 2026-10-08)
+
+Ran against a real Argo Rollouts controller (v1.10.0) and the real
+`kubectl-argo-rollouts` plugin, using a throwaway Rollout with the
+identical `strategy.blueGreen` block (not the gateway's own chart — its
+Spring Boot app needs more infra up than this check needed):
+
+- a new revision deployed to `preview` while `active` kept serving the
+  old version — curled both Services directly and got different
+  responses, confirming AC1/AC2
+- the Rollout sat `Paused` the whole time; it never auto-promoted (AC5)
+- `kubectl argo rollouts promote` switched the active Service to the new
+  version immediately — confirmed via curl before/after (AC3)
+- `kubectl argo rollouts undo` switched it back immediately — confirmed
+  via curl again (AC4)
+
 ## How a change reaches staging
 
 1. A change lands on `STAM-platform`'s `Dev` branch (the umbrella
