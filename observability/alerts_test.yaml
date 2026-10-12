@@ -1,0 +1,52 @@
+# STAM-402: proves ErrorBudgetBurn actually fires on 5xx traffic, not just
+# that the expression parses. Run via test-alerts.sh (extracts this repo's
+# real alerts.yaml spec.groups first, so this tests the deployed rule, not
+# a hand-copied duplicate of it).
+rule_files:
+  - .rules-generated.yaml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    name: "ErrorBudgetBurn fires once booking's 5xx rate exceeds 1% for 5m"
+    input_series:
+      # 2 errors/min against 98 successes/min = 2% error rate, every
+      # interval across the whole run -- comfortably over the 1% bar for
+      # the full 5m `for:` window, not just a single scrape.
+      - series: 'http_server_requests_seconds_count{job="booking",outcome="SERVER_ERROR"}'
+        values: "0+2x30"
+      - series: 'http_server_requests_seconds_count{job="booking",outcome="SUCCESS"}'
+        values: "0+98x30"
+
+    alert_rule_test:
+      # Before 5m of sustained breach, the `for:` window hasn't elapsed --
+      # alert must still be pending, not firing.
+      - eval_time: 4m
+        alertname: ErrorBudgetBurn
+        exp_alerts: []
+
+      - eval_time: 11m
+        alertname: ErrorBudgetBurn
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              job: booking
+            exp_annotations:
+              summary: "booking: 5xx rate above 1% for 5m"
+              runbook: "STAM-platform/docs/runbook.md#errorbudgetburn"
+
+  - interval: 1m
+    name: "ErrorBudgetBurn stays silent when the error rate is under the 1% bar"
+    input_series:
+      # 1 error/min against 199 successes/min = 0.5% -- below the bar, at
+      # every scrape across the run, not just on average.
+      - series: 'http_server_requests_seconds_count{job="booking",outcome="SERVER_ERROR"}'
+        values: "0+1x30"
+      - series: 'http_server_requests_seconds_count{job="booking",outcome="SUCCESS"}'
+        values: "0+199x30"
+
+    alert_rule_test:
+      - eval_time: 15m
+        alertname: ErrorBudgetBurn
+        exp_alerts: []
