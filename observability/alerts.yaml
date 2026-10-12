@@ -1,0 +1,105 @@
+# STAM-66 / AC2, AC5: symptom-based alerts only -- latency, error rate,
+# consumer lag, DLQ depth, saga health, cert expiry, crash loops. Zero
+# entries on cpu_usage/memory_usage anywhere in this file; a service can
+# run hot on CPU for hours without a single user noticing, and that's
+# exactly the alert nobody should be paged for (AC5).
+#
+# Every alert's `runbook` annotation names a section in
+# STAM-platform/docs/runbook.md -- an operator reading the page in
+# Alertmanager or Grafana's alert list gets a concrete next step, not
+# just a metric name (AC3).
+#
+# Applied as a PrometheusRule CR picked up by kube-prometheus-stack's
+# Prometheus (ruleSelector matches its own release label, same as the
+# ServiceMonitors in STAM-platform/platform/charts/stampede):
+#   kubectl apply -f observability/alerts.yaml -n monitoring
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: stampede-symptom-alerts
+  namespace: monitoring
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: stampede.symptoms
+      rules:
+        - alert: CheckoutLatencyHigh
+          expr: |
+            histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{job="booking"}[5m])) by (le)) > 0.3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Booking p99 latency above 300ms for 5m"
+            runbook: "STAM-platform/docs/runbook.md#checkoutlatencyhigh"
+
+        - alert: ErrorBudgetBurn
+          expr: |
+            100 * sum(rate(http_server_requests_seconds_count{outcome="SERVER_ERROR"}[5m])) by (job)
+            /
+            clamp_min(sum(rate(http_server_requests_seconds_count[5m])) by (job), 1)
+            > 1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.job }}: 5xx rate above 1% for 5m"
+            runbook: "STAM-platform/docs/runbook.md#errorbudgetburn"
+
+        - alert: ConsumerLagGrowing
+          # Known gap, not faked: no lag exporter is deployed yet (Strimzi's
+          # JMX rules in platform/kafka/kafka-metrics-configmap.yaml expose
+          # broker-side kafka_log_LogEndOffset, not per-consumer-group
+          # committed-offset lag). This rule is written to the metric name
+          # a standard exporter (kafka-lag-exporter / kminion) would emit,
+          # so it activates the moment that's added -- see runbook section.
+          expr: |
+            increase(kafka_consumergroup_lag[10m]) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Consumer group {{ $labels.group }} lag has grown for 10m"
+            runbook: "STAM-platform/docs/runbook.md#consumerlaggrowing"
+
+        - alert: DLQNotEmpty
+          expr: dlq_depth > 0
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "payments.events.dlq has {{ $value }} message(s)"
+            runbook: "STAM-platform/docs/runbook.md#dlqnotempty"
+
+        - alert: SagaStuck
+          expr: saga_oldest_non_terminal_age_seconds > 600
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "A booking saga has been non-terminal for {{ $value | humanizeDuration }}"
+            runbook: "STAM-platform/docs/runbook.md#sagastuck"
+
+        - alert: CertExpiry
+          # Known gap, not faked: cert-manager isn't deployed yet (STMP-43 is
+          # blocked on a real domain/DuckDNS). Written against cert-manager's
+          # own standard metric name so it activates the moment that lands.
+          expr: |
+            (cert_manager_certificate_expiration_timestamp_seconds - time()) < 14 * 24 * 60 * 60
+          for: 0m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Certificate {{ $labels.name }} expires in under 14 days"
+            runbook: "STAM-platform/docs/runbook.md#certexpiry"
+
+        - alert: PodCrashLoop
+          expr: |
+            increase(kube_pod_container_status_restarts_total{namespace=~"apps|staging|prod"}[15m]) > 3
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted more than 3 times in 15m"
+            runbook: "STAM-platform/docs/runbook.md#podcrashloop"
