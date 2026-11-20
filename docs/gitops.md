@@ -85,9 +85,11 @@ below: ArgoCD would otherwise fight a paused blueGreen promotion.
   staging exists to be disposable and always reflect `Dev`.
 - **In prod:** same detection (`OutOfSync` appears), but there's no
   `selfHeal` to act on it — prod's manual-only policy means ArgoCD
-  reports the drift and waits. Catching that drift *before* someone
-  investigates why prod doesn't match git is AC6's job (an alert on
-  `OutOfSync` in prod), explicitly deferred to STMP-54, not built yet.
+  reports the drift and waits. AC6's alert catches it: `ArgoAppOutOfSyncProd`
+  in [`observability/alerts.yaml`](../observability/alerts.yaml) fires
+  (warning) when a prod Application has been `OutOfSync` for 30 minutes,
+  whether that's hand-made drift or a merged release waiting for its
+  manual Sync.
 
 ## Verified live (kind)
 
