@@ -5,7 +5,8 @@
 # exactly the alert nobody should be paged for (AC5).
 #
 # Every alert's `runbook` annotation names a section in
-# STAM-platform/docs/runbook.md -- an operator reading the page in
+# STAM-platform/docs/runbook.md (GitOps alerts: STAM-gitops/docs/gitops.md,
+# where the drift procedure already lives) -- an operator reading the page in
 # Alertmanager or Grafana's alert list gets a concrete next step, not
 # just a metric name (AC3).
 #
@@ -103,3 +104,58 @@ spec:
           annotations:
             summary: "{{ $labels.namespace }}/{{ $labels.pod }} restarted more than 3 times in 15m"
             runbook: "STAM-platform/docs/runbook.md#podcrashloop"
+
+        - alert: BackupJobFailed
+          # STAM-363 / STAM-59. Two symptoms, one page: a backup Job that
+          # reached its terminal Failed condition (not just a failed pod --
+          # backoffLimit: 2 retries can still succeed) in the last 24h, or a
+          # CronJob that has quietly not succeeded for longer than one
+          # schedule period plus slack (02:00 UTC nightly -> 26h). The 24h
+          # window matters: the CronJob keeps its last failed Job around
+          # (failedJobsHistoryLimit: 1), so without it the alert would keep
+          # firing after later nights succeed. kube-state-metrics series,
+          # already scraped by kube-prometheus-stack.
+          expr: |
+            (
+              kube_job_failed{namespace="staging", job_name=~"postgres-backup-.*", condition="true"} == 1
+              and on(namespace, job_name)
+              (time() - kube_job_status_start_time{namespace="staging", job_name=~"postgres-backup-.*"}) < 24 * 3600
+            )
+            or
+            (time() - kube_cronjob_status_last_successful_time{namespace="staging", cronjob="postgres-backup"}) > 26 * 3600
+          for: 0m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Nightly Postgres backup failed or has not succeeded in 26h"
+            runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+
+        - alert: BackupNeverSucceeded
+          # kube_cronjob_status_last_successful_time doesn't exist until the
+          # first success, so BackupJobFailed's staleness half is blind on a
+          # fresh cluster whose backups have never worked (or if the CronJob
+          # is deleted). 26h covers the first scheduled run plus slack.
+          expr: |
+            absent(kube_cronjob_status_last_successful_time{namespace="staging", cronjob="postgres-backup"})
+          for: 26h
+          labels:
+            severity: critical
+          annotations:
+            summary: "Postgres backup CronJob has no successful run on record"
+            runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+
+        - alert: ArgoAppOutOfSyncProd
+          # STAM-61 / AC6. Prod has no auto-sync, so OutOfSync there means
+          # either someone changed the cluster by hand (drift) or a merged
+          # release is waiting for its manual Sync. ArgoCD's metrics can't
+          # tell those apart, and both deserve a human after 30m, so this
+          # pages on either. Needs the argo-cd chart's controller metrics +
+          # ServiceMonitor enabled (see README "Bootstrapping a cluster").
+          expr: |
+            argocd_app_info{dest_namespace="prod", sync_status="OutOfSync"} == 1
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ArgoCD app {{ $labels.name }} has been OutOfSync in prod for 30m"
+            runbook: "STAM-gitops/docs/gitops.md#what-happens-if-someone-kubectl-applys-directly-anyway"
