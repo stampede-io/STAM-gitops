@@ -32,7 +32,10 @@ that's the trigger to revisit this, not before.
 ## Bootstrapping a cluster
 
 ```bash
-helm install argocd oci://ghcr.io/argoproj/argo-helm/argo-cd -n argocd --create-namespace
+helm install argocd oci://ghcr.io/argoproj/argo-helm/argo-cd -n argocd --create-namespace \
+  --set controller.metrics.enabled=true \
+  --set controller.metrics.serviceMonitor.enabled=true \
+  --set controller.metrics.serviceMonitor.additionalLabels.release=prometheus
 kubectl apply -f argocd/app-of-apps.yaml
 ```
 

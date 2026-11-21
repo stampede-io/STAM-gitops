@@ -50,3 +50,123 @@ tests:
       - eval_time: 15m
         alertname: ErrorBudgetBurn
         exp_alerts: []
+
+  # STAM-363: BackupJobFailed -- both halves of the `or`, plus the quiet case.
+  - interval: 1m
+    name: "BackupJobFailed fires when a postgres-backup Job fails"
+    input_series:
+      - series: 'kube_job_failed{namespace="staging",job_name="postgres-backup-29000000",condition="true"}'
+        values: "0 0 1 1 1"
+      - series: 'kube_job_status_start_time{namespace="staging",job_name="postgres-backup-29000000"}'
+        values: "0x4"
+      # a failed pod alone (retry still pending) must not page
+      - series: 'kube_job_status_failed{namespace="staging",job_name="postgres-backup-29000000"}'
+        values: "1x4"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: BackupJobFailed
+        exp_alerts: []
+      - eval_time: 3m
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: staging
+              job_name: postgres-backup-29000000
+              condition: "true"
+            exp_annotations:
+              summary: "Nightly Postgres backup failed or has not succeeded in 26h"
+              runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+
+  - interval: 1h
+    name: "BackupJobFailed fires when the CronJob has not succeeded for over 26h"
+    input_series:
+      # last success pinned at t=0; time() passes 26h at the 27th hour.
+      - series: 'kube_cronjob_status_last_successful_time{namespace="staging",cronjob="postgres-backup"}'
+        values: "0x30"
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupJobFailed
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: staging
+              cronjob: postgres-backup
+            exp_annotations:
+              summary: "Nightly Postgres backup failed or has not succeeded in 26h"
+              runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+
+  - interval: 1h
+    name: "BackupJobFailed clears once the kept failed Job is older than 24h and later runs succeed"
+    input_series:
+      # failedJobsHistoryLimit keeps the failed Job (started at t=0) forever
+      - series: 'kube_job_failed{namespace="staging",job_name="postgres-backup-29000000",condition="true"}'
+        values: "1x30"
+      - series: 'kube_job_status_start_time{namespace="staging",job_name="postgres-backup-29000000"}'
+        values: "0x30"
+      # nightly successes keep last_successful_time fresh (= now)
+      - series: 'kube_cronjob_status_last_successful_time{namespace="staging",cronjob="postgres-backup"}'
+        values: "0+3600x30"
+    alert_rule_test:
+      - eval_time: 2h
+        alertname: BackupJobFailed
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: staging
+              job_name: postgres-backup-29000000
+              condition: "true"
+            exp_annotations:
+              summary: "Nightly Postgres backup failed or has not succeeded in 26h"
+              runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+      - eval_time: 25h
+        alertname: BackupJobFailed
+        exp_alerts: []
+
+  - interval: 1h
+    name: "BackupNeverSucceeded fires when no success has ever been recorded for 26h"
+    input_series:
+      - series: 'kube_cronjob_info{namespace="staging",cronjob="postgres-backup"}'
+        values: "1x30"
+    alert_rule_test:
+      - eval_time: 25h
+        alertname: BackupNeverSucceeded
+        exp_alerts: []
+      - eval_time: 27h
+        alertname: BackupNeverSucceeded
+        exp_alerts:
+          - exp_labels:
+              severity: critical
+              namespace: staging
+              cronjob: postgres-backup
+            exp_annotations:
+              summary: "Postgres backup CronJob has no successful run on record"
+              runbook: "STAM-platform/docs/runbook.md#postgres-backup--restore-drill-stam-59"
+
+  # STAM-61 AC6: prod drift pages after 30m; staging drift never does
+  # (selfHeal reverts it there).
+  - interval: 1m
+    name: "ArgoAppOutOfSyncProd fires after 30m OutOfSync in prod, not for staging"
+    input_series:
+      - series: 'argocd_app_info{name="stampede-prod",dest_namespace="prod",sync_status="OutOfSync"}'
+        values: "1x45"
+      - series: 'argocd_app_info{name="stampede-staging",dest_namespace="staging",sync_status="OutOfSync"}'
+        values: "1x45"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: ArgoAppOutOfSyncProd
+        exp_alerts: []
+      - eval_time: 40m
+        alertname: ArgoAppOutOfSyncProd
+        exp_alerts:
+          - exp_labels:
+              severity: warning
+              name: stampede-prod
+              dest_namespace: prod
+              sync_status: OutOfSync
+            exp_annotations:
+              summary: "ArgoCD app stampede-prod has been OutOfSync in prod for 30m"
+              runbook: "STAM-gitops/docs/gitops.md#what-happens-if-someone-kubectl-applys-directly-anyway"
