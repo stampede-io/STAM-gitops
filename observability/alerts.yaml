@@ -117,12 +117,12 @@ spec:
           # already scraped by kube-prometheus-stack.
           expr: |
             (
-              kube_job_failed{namespace="apps", job_name=~"postgres-backup-.*", condition="true"} == 1
+              kube_job_failed{namespace="staging", job_name=~"postgres-backup-.*", condition="true"} == 1
               and on(namespace, job_name)
-              (time() - kube_job_status_start_time{namespace="apps", job_name=~"postgres-backup-.*"}) < 24 * 3600
+              (time() - kube_job_status_start_time{namespace="staging", job_name=~"postgres-backup-.*"}) < 24 * 3600
             )
             or
-            (time() - kube_cronjob_status_last_successful_time{namespace="apps", cronjob="postgres-backup"}) > 26 * 3600
+            (time() - kube_cronjob_status_last_successful_time{namespace="staging", cronjob="postgres-backup"}) > 26 * 3600
           for: 0m
           labels:
             severity: critical
@@ -136,7 +136,7 @@ spec:
           # fresh cluster whose backups have never worked (or if the CronJob
           # is deleted). 26h covers the first scheduled run plus slack.
           expr: |
-            absent(kube_cronjob_status_last_successful_time{namespace="apps", cronjob="postgres-backup"})
+            absent(kube_cronjob_status_last_successful_time{namespace="staging", cronjob="postgres-backup"})
           for: 26h
           labels:
             severity: critical
